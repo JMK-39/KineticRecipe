@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -45,27 +46,38 @@ public final class RecipeConfigStore {
     public static synchronized Snapshot load() {
         ensureFile();
         try {
-            JsonElement rootElement = GSON.fromJson(Files.readString(CONFIG_FILE, StandardCharsets.UTF_8), JsonElement.class);
-            if (rootElement == null || !rootElement.isJsonObject()) {
-                return new Snapshot(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
-            }
-            JsonObject root = rootElement.getAsJsonObject();
-            List<JsonObject> unresolvedRecipes = new ArrayList<>();
-            List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes);
-            return new Snapshot(recipes, readRemovals(root), unresolvedRecipes);
-        } catch (Exception e) {
+            return loadRequired();
+        } catch (IOException e) {
             LOGGER.error("Failed to read recipe config {}", CONFIG_FILE, e);
             return new Snapshot(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
     }
 
+    private static Snapshot loadRequired() throws IOException {
+        ensureFile();
+        try {
+            JsonElement rootElement = GSON.fromJson(Files.readString(CONFIG_FILE, StandardCharsets.UTF_8), JsonElement.class);
+            if (rootElement == null || !rootElement.isJsonObject()) {
+                throw new IOException("Recipe config root must be a JSON object");
+            }
+            JsonObject root = rootElement.getAsJsonObject();
+            List<JsonObject> unresolvedRecipes = new ArrayList<>();
+            List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes);
+            return new Snapshot(recipes, readRemovals(root), unresolvedRecipes);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to parse recipe config", e);
+        }
+    }
+
     public static synchronized void updateRecipes(List<RecipeRecord> recipes) throws IOException {
-        Snapshot current = load();
+        Snapshot current = loadRequired();
         save(recipes, current.removals(), current.unresolvedRecipes());
     }
 
     public static synchronized void updateRemovals(List<RemovalEntry> removals) throws IOException {
-        Snapshot current = load();
+        Snapshot current = loadRequired();
         save(current.recipes(), removals, current.unresolvedRecipes());
     }
 
@@ -116,7 +128,13 @@ public final class RecipeConfigStore {
         }
         root.add("removals", removalsJson);
 
-        Files.writeString(CONFIG_FILE, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
+        Path tempPath = CONFIG_FILE.resolveSibling(CONFIG_FILE.getFileName() + ".tmp");
+        Files.writeString(tempPath, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
+        try {
+            Files.move(tempPath, CONFIG_FILE, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            Files.move(tempPath, CONFIG_FILE, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static void ensureFile() {

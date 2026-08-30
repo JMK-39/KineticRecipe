@@ -18,16 +18,17 @@ public final class RecipeSaveManager {
     public static synchronized void saveOnly(ServerPlayer player, RecipeNetwork.RecipeChangePacket packet) {
         try {
             RecipeDatabase.loadDatabase();
+            ArrayList<RecipeRecord> candidateRecords = copyRecords(RecipeDatabase.snapshot());
             RecipeRecord record = null;
             if (packet.uuid() != null && !packet.uuid().isEmpty()) {
-                record = RecipeDatabase.records.stream()
+                record = candidateRecords.stream()
                         .filter(value -> value.uuid.equals(packet.uuid()))
                         .findFirst()
                         .orElse(null);
             }
             if (record == null) {
                 record = new RecipeRecord();
-                RecipeDatabase.records.add(record);
+                candidateRecords.add(record);
             }
 
             record.editorType = packet.editorType();
@@ -37,7 +38,9 @@ public final class RecipeSaveManager {
             record.inputs = new ArrayList<>(packet.inputs());
             record.inputModes = new ArrayList<>(packet.inputNbtModes());
 
-            RecipeConfigStore.updateRecipes(RecipeDatabase.snapshot());
+            RecipeConfigStore.updateRecipes(candidateRecords);
+            RecipeDatabase.records.clear();
+            RecipeDatabase.records.addAll(candidateRecords);
             pendingRecipeReload = true;
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.saved_pending"));
         } catch (Exception e) {
@@ -49,8 +52,11 @@ public final class RecipeSaveManager {
     public static synchronized void deleteOnly(ServerPlayer player, String uuid) {
         try {
             RecipeDatabase.loadDatabase();
-            RecipeDatabase.records.removeIf(record -> record.uuid.equals(uuid));
-            RecipeConfigStore.updateRecipes(RecipeDatabase.snapshot());
+            ArrayList<RecipeRecord> candidateRecords = copyRecords(RecipeDatabase.snapshot());
+            candidateRecords.removeIf(record -> record.uuid.equals(uuid));
+            RecipeConfigStore.updateRecipes(candidateRecords);
+            RecipeDatabase.records.clear();
+            RecipeDatabase.records.addAll(candidateRecords);
             pendingRecipeReload = true;
             RecipeNetwork.syncRecipeRecords(player);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.deleted_pending"));
@@ -58,6 +64,17 @@ public final class RecipeSaveManager {
             LOGGER.error("Failed to delete memory recipe {}", uuid, e);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));
         }
+    }
+
+
+    private static ArrayList<RecipeRecord> copyRecords(java.util.List<RecipeRecord> source) {
+        ArrayList<RecipeRecord> copies = new ArrayList<>();
+        for (RecipeRecord record : source) {
+            if (record != null) {
+                copies.add(RecipeRecord.loadFromNBT(record.saveToNBT()));
+            }
+        }
+        return copies;
     }
 
     public static synchronized void applyPending(ServerPlayer player) {
