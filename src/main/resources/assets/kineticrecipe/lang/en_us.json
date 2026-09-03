@@ -145,13 +145,17 @@
   "gui.kineticrecipe.recipehud.msg.saved_pending": "§aRecipe saved. Changes will apply when the recipe UI is closed.",
   "gui.kineticrecipe.recipehud.msg.deleted_pending": "§e§lRecipe removed from config. Changes will apply when the recipe UI is closed.",
   "gui.kineticrecipe.recipehud.save_removals_apply": "§aSave Changes",
-  "cfg.kineticrecipe.recipehud.title": "§eRecipe Editor",
+  "cfg.kineticrecipe.recipehud.title": "§eKinetic Recipe Editor",
   "cfg.kineticrecipe.recipehud.description": "§aRecipe creation, editing, removal, and pending changes are handled in the dedicated editor; recipes.json does not need manual editing. §eEvery editor packet is permission-checked by the server.",
   "cfg.kineticrecipe.recipehud.open_editor": "§eOpen Recipe Editor",
   "cfg.kineticrecipe.recipehud.open_editor.tooltip": "§aOpen the recipe hub to create, edit, or remove supported recipe types. §eEmpty inputs, empty outputs, and unauthorized saves are rejected.",
   "gui.kineticrecipe.recipehud.err.invalid_data": "§cSave failed: the configuration data is invalid. Reopen the editor and try again.",
   "msg.kineticrecipe.recipehud.invalid_type": "§cInvalid editor type: %s",
-  "gui.kineticrecipe.module.name": "KineticRecipe",
+  "gui.kineticrecipe.module.name": "Kinetic Recipe Editor",
   "gui.kineticrecipe.module.function": "Recipe Management",
-  "gui.kineticrecipe.module.tooltip": "Manages recipe additions, removals, and modifications with visual recipe editing."
+  "gui.kineticrecipe.module.tooltip": "Manages recipe additions, removals, and modifications with visual recipe editing.",
+  "gui.kineticrecipe.recipehud.invalid_item_placeholder": "§cInvalid item: %s",
+  "gui.kineticrecipe.recipehud.tooltip.invalid_placeholder_replace.colored": "§bLeft-click: Select an item to replace this invalid slot",
+  "gui.kineticrecipe.recipehud.err.invalid_placeholder": "§cSave failed: replace every invalid item marked with a barrier first",
+  "gui.kineticrecipe.recipehud.tooltip.invalid_recipe.colored": "§cThis recipe is invalid; unrecognized items are shown as barriers"
 }

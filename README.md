@@ -1,4 +1,4 @@
-# KineticRecipe
+# 动力配方编辑器（KineticRecipe）
 
 [简体中文](#简体中文) | [English](#english)
 
@@ -6,7 +6,7 @@
 
 ### 模组定位
 
-**KineticRecipe** 是 Kinetic 系列的服务器内存配方编辑模块。当前版本不依赖 KubeJS 脚本，也不生成虚拟数据包；配方和移除规则统一保存在 `recipes.json`，然后直接写入服务器当前运行中的 `RecipeManager`。
+**动力配方编辑器（KineticRecipe）** 是 Kinetic 系列的服务器内存配方编辑模块。当前版本不依赖 KubeJS 脚本，也不生成虚拟数据包；配方和移除规则统一保存在 `recipes.json`，然后直接写入服务器当前运行中的 `RecipeManager`。
 
 这意味着整合包作者可以在游戏内创建、修改、预览和移除配方，保存后由服务器重新组装活动配方列表并同步给在线玩家。
 
@@ -27,7 +27,7 @@
 - **五种移除模式**：可按 **来源模组 / Recipe ID / 输出物 / 物品标签 / 配方类型** 删除基线配方。
 - **内存级替换**：服务器启动或数据包重载时先记录基线配方，再叠加移除规则与自定义配方。
 - **即时同步玩家**：保存应用后发送新的配方列表给在线玩家。
-- **保留无法识别的配置条目**：读取配置时无法解析的配方不会被随意覆盖丢失，便于后续修复。
+- **错误配方可视化修复**：无法正常读取的配方保留在配方列表末尾并使用红色描边；无法识别的物品使用屏障占位，可直接进入编辑器替换并修复。
 
 ### 配置文件
 
@@ -60,7 +60,7 @@ config/kineticcore/recipes.json
 
 ### Overview
 
-**KineticRecipe** is the server-memory recipe editor for the Kinetic family. The current implementation does not require KubeJS and does not generate a runtime datapack. Custom recipes and removal rules are stored in `recipes.json` and applied directly to the active server `RecipeManager`.
+**Kinetic Recipe Editor (KineticRecipe)** is the server-memory recipe editor for the Kinetic family. The current implementation does not require KubeJS and does not generate a runtime datapack. Custom recipes and removal rules are stored in `recipes.json` and applied directly to the active server `RecipeManager`.
 
 ### Key Features
 
@@ -77,7 +77,7 @@ config/kineticcore/recipes.json
 - Removal rules by mod, recipe ID, output item, tag or recipe type.
 - Baseline capture plus in-memory recipe replacement.
 - Live recipe synchronization to online players.
-- Preservation of unresolved config entries instead of silently deleting them.
+- Invalid recipes remain visible at the end of the editor list with a red outline; unresolved items use barrier placeholders that can be replaced and repaired in the editor.
 
 ### Configuration
 

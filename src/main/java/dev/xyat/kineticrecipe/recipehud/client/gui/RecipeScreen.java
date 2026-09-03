@@ -90,8 +90,9 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
                 b -> {
                     if (RecipePreviewState.returnToPreview && Minecraft.getInstance().player != null) {
                         Minecraft.getInstance().setScreen(new RecipePreviewScreen(null));
+                        RecipeNetwork.requestRecipeRecords();
                     } else if (Minecraft.getInstance().player != null) {
-                        Minecraft.getInstance().player.connection.sendCommand("kt re");
+                        RecipeNetwork.requestOpenHub();
                     }
                 }, null));
         y += bH + sp;
@@ -168,6 +169,37 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
         container.setItem(slotIdx, stack.isEmpty() || stack.is(Items.AIR) ? ItemStack.EMPTY : stack);
     }
 
+    private boolean isInvalidPlaceholder(ItemStack stack) {
+        return stack != null
+                && !stack.isEmpty()
+                && stack.getTag() != null
+                && stack.getTag().getBoolean("kineticrecipe_invalid_placeholder");
+    }
+
+    private boolean containsInvalidPlaceholder() {
+        if (isInvalidPlaceholder(menu.outputContainer.getItem(0))) {
+            return true;
+        }
+        int inputCount = menu.type == RecipeRegistry.EditorType.CRAFTING
+                ? 9
+                : (menu.type == RecipeRegistry.EditorType.SMITHING ? 3 : 1);
+        for (int i = 0; i < inputCount; i++) {
+            if (isInvalidPlaceholder(menu.inputContainer.getItem(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void openItemSelectorForSlot(int slotIdx, Container container, boolean allowTag) {
+        ItemCache.prepareCache(() -> Minecraft.getInstance().setScreen(
+                new ItemSelectorScreen(
+                        this,
+                        selection -> handleItemSelectorResult(selection, slotIdx, container, allowTag)
+                )
+        ));
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         double virtualMouseX =
@@ -183,6 +215,20 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
             } else {
                 countInput.setFocused(false);
                 if (this.getFocused() == countInput) this.setFocused(null);
+            }
+        }
+
+        if (button == 0
+                && this.hoveredSlot != null
+                && isInvalidPlaceholder(this.hoveredSlot.getItem())
+                && this.menu.getCarried().isEmpty()) {
+            if (this.hoveredSlot.container == menu.inputContainer
+                    || this.hoveredSlot.container == menu.outputContainer) {
+                int slotIdx = this.hoveredSlot.getContainerSlot();
+                Container container = this.hoveredSlot.container;
+                boolean isInput = container == menu.inputContainer;
+                openItemSelectorForSlot(slotIdx, container, isInput);
+                return true;
             }
         }
 
@@ -219,8 +265,7 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
                 Container container = this.hoveredSlot.container;
                 boolean isInput = this.hoveredSlot.container == menu.inputContainer;
 
-                ItemCache.prepareCache(() -> Minecraft.getInstance().setScreen(
-                        new ItemSelectorScreen(this, selection -> handleItemSelectorResult(selection, slotIdx, container, isInput))));
+                openItemSelectorForSlot(slotIdx, container, isInput);
                 return true;
             }
         }
@@ -245,6 +290,13 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
     @Override
     protected @NotNull List<Component> getTooltipFromContainerItem(@NotNull ItemStack stack) {
         List<Component> original = super.getTooltipFromContainerItem(stack);
+        if (isInvalidPlaceholder(stack)) {
+            List<Component> invalidTooltip = new ArrayList<>();
+            invalidTooltip.add(stack.getHoverName());
+            invalidTooltip.add(Component.empty());
+            invalidTooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.invalid_placeholder_replace.colored"));
+            return invalidTooltip;
+        }
         if (this.hoveredSlot != null && this.hoveredSlot.getItem() == stack
                 && (this.hoveredSlot.container == menu.inputContainer || this.hoveredSlot.container == menu.outputContainer)) {
             List<Component> cleaned = new ArrayList<>();
@@ -288,6 +340,10 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
     }
 
     private void handleSave() {
+        if (containsInvalidPlaceholder()) {
+            showToast("gui.kineticrecipe.recipehud.err.invalid_placeholder");
+            return;
+        }
         ItemStack originalOut = menu.outputContainer.getItem(0);
         if (originalOut.isEmpty()) {
             showToast("gui.kineticrecipe.recipehud.err.output_empty");
@@ -321,7 +377,7 @@ public class RecipeScreen extends ResponsiveContainerScreen<UniversalRecipeMenu>
             }
         }
         String uuidToSend = menu.editUuid == null ? "" : menu.editUuid;
-        RecipeNetwork.sendRecipeChange(new RecipeChangePacket(uuidToSend, menu.type.name(), isShapeless, modes, menu.type != RecipeRegistry.EditorType.SMITHING && outputUseNbt, 0, inputs, outStack));
+        RecipeNetwork.sendRecipeChange(new RecipeChangePacket(uuidToSend, menu.editConfigIndex, menu.type.name(), isShapeless, modes, menu.type != RecipeRegistry.EditorType.SMITHING && outputUseNbt, 0, inputs, outStack));
         RecipeEditSessionState.markPendingRecipeApply();
         showToast("gui.kineticrecipe.recipehud.msg.saving_only");
     }

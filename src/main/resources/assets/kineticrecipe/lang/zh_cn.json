@@ -145,13 +145,17 @@
   "gui.kineticrecipe.recipehud.msg.saved_pending": "§a配方已保存，关闭配方界面后统一应用",
   "gui.kineticrecipe.recipehud.msg.deleted_pending": "§e§l配方已从配置删除，关闭配方界面后统一应用",
   "gui.kineticrecipe.recipehud.save_removals_apply": "§a保存修改",
-  "cfg.kineticrecipe.recipehud.title": "§e配方编辑",
+  "cfg.kineticrecipe.recipehud.title": "§e动力配方编辑器",
   "cfg.kineticrecipe.recipehud.description": "§a配方新增、修改、移除与待应用内容统一从专用编辑器处理，不需要手动修改 recipes.json。§e服务器会对所有编辑数据包再次校验管理权限。",
   "cfg.kineticrecipe.recipehud.open_editor": "§e打开配方编辑器",
   "cfg.kineticrecipe.recipehud.open_editor.tooltip": "§a进入配方总览，可新增、修改或移除支持类型的配方。§e空输入、空输出和无权限保存会被拒绝。",
   "gui.kineticrecipe.recipehud.err.invalid_data": "§c保存失败：配置数据无效，请重新打开编辑界面后再保存",
   "msg.kineticrecipe.recipehud.invalid_type": "§c无效的编辑器类型：%s",
-  "gui.kineticrecipe.module.name": "KineticRecipe",
+  "gui.kineticrecipe.module.name": "动力配方编辑器",
   "gui.kineticrecipe.module.function": "配方管理",
-  "gui.kineticrecipe.module.tooltip": "管理配方新增、移除与修改，并提供可视化配方编辑功能。"
+  "gui.kineticrecipe.module.tooltip": "管理配方新增、移除与修改，并提供可视化配方编辑功能。",
+  "gui.kineticrecipe.recipehud.invalid_item_placeholder": "§c错误物品：%s",
+  "gui.kineticrecipe.recipehud.tooltip.invalid_placeholder_replace.colored": "§b左键: 选择物品替换这个错误槽位",
+  "gui.kineticrecipe.recipehud.err.invalid_placeholder": "§c保存失败：请先替换所有屏障标记的错误物品",
+  "gui.kineticrecipe.recipehud.tooltip.invalid_recipe.colored": "§c此配方存在错误；无法识别的物品已显示为屏障"
 }

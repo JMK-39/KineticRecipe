@@ -22,6 +22,7 @@ public class UniversalRecipeMenu extends AbstractContainerMenu {
     private int editorSlotCount = 0;
 
     public String editUuid = "";
+    public int editConfigIndex = -1;
     public CompoundTag clientRecordData = null;
 
     public UniversalRecipeMenu(int id, Inventory playerInv, RecipeRegistry.EditorType type, RecipeRecord record) {
@@ -31,6 +32,7 @@ public class UniversalRecipeMenu extends AbstractContainerMenu {
 
         if (record != null) {
             this.editUuid = record.uuid;
+            this.editConfigIndex = record.configIndex;
             this.outputContainer.setItem(0, record.output.copy());
             for (int i = 0; i < record.inputs.size() && i < editorSlotCount - (1); i++) {
                 this.inputContainer.setItem(i, record.inputs.get(i).copy());
@@ -46,6 +48,7 @@ public class UniversalRecipeMenu extends AbstractContainerMenu {
         if (data.readBoolean()) {
             this.clientRecordData = data.readNbt();
             this.editUuid = data.readUtf();
+            this.editConfigIndex = data.readInt();
         }
     }
 

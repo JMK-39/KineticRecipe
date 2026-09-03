@@ -31,7 +31,9 @@ public class RecipePreviewScreen extends ScaledScreen {
     private static final float ITEM_SCALE = 1.2F;
     private static final int BORDER_COLOR = 0xFFFFFFFF;
     private static final int HOVER_BORDER_COLOR = 0xFF66CCFF;
+    private static final int INVALID_BORDER_COLOR = 0xFFFF5555;
     private static final int COUNT_COLOR = 0xFF55FF55;
+    private static final int SCISSOR_MARGIN = 2;
 
     private final Screen parent;
     private EditBox searchBox;
@@ -81,6 +83,7 @@ public class RecipePreviewScreen extends ScaledScreen {
         int buttonY = 5;
         int backWidth = 60;
         int refreshWidth = 80;
+        int toolbarGap = 6;
 
         addRenderableWidget(
                 Button.builder(
@@ -95,9 +98,7 @@ public class RecipePreviewScreen extends ScaledScreen {
                                     if (parent != null) {
                                         minecraft.setScreen(parent);
                                     } else if (minecraft.player != null) {
-                                        minecraft.player.connection.sendCommand(
-                                                "kt re"
-                                        );
+                                        RecipeNetwork.requestOpenHub();
                                     }
                                 }
                         )
@@ -110,19 +111,20 @@ public class RecipePreviewScreen extends ScaledScreen {
                         .build()
         );
 
+        int refreshX =
+                vWidth
+                        - sidePadding
+                        - refreshWidth;
+
         addRenderableWidget(
                 Button.builder(
                                 Component.translatable(
                                         "gui.kineticrecipe.recipehud.preview.refresh"
                                 ),
-                                button -> {
-                                    RecipeNetwork.requestRecipeRecords();
-                                }
+                                button -> RecipeNetwork.requestRecipeRecords()
                         )
                         .bounds(
-                                vWidth
-                                        - sidePadding
-                                        - refreshWidth,
+                                refreshX,
                                 buttonY,
                                 refreshWidth,
                                 20
@@ -147,12 +149,20 @@ public class RecipePreviewScreen extends ScaledScreen {
         } else {
             searchY = 5;
 
+            int searchAreaStart =
+                    sidePadding
+                            + backWidth
+                            + toolbarGap;
+
+            int searchAreaEnd =
+                    refreshX
+                            - toolbarGap;
+
             int availableSearchWidth =
-                    vWidth
-                            - sidePadding * 2
-                            - backWidth
-                            - refreshWidth
-                            - 24;
+                    Math.max(
+                            100,
+                            searchAreaEnd - searchAreaStart
+                    );
 
             searchWidth =
                     Math.max(
@@ -164,7 +174,11 @@ public class RecipePreviewScreen extends ScaledScreen {
                     );
 
             searchX =
-                    (vWidth - searchWidth) / 2;
+                    searchAreaStart
+                            + Math.max(
+                                    0,
+                                    (availableSearchWidth - searchWidth) / 2
+                            );
 
             gridY = 35;
         }
@@ -269,42 +283,47 @@ public class RecipePreviewScreen extends ScaledScreen {
     private void onSearchUpdate(String query) {
         displayRecords.clear();
         String lowerQuery = query.toLowerCase(Locale.ROOT).trim();
+        List<RecipeRecord> validRecords = new ArrayList<>();
+        List<RecipeRecord> invalidRecords = new ArrayList<>();
 
         for (RecipeRecord record : RecipeDatabase.records) {
-            if (!isDisplayableRecord(record)) {
-                continue;
-            }
-
-            if (lowerQuery.isEmpty()) {
-                displayRecords.add(record);
-                continue;
-            }
-
-            ResourceLocation id = ForgeRegistries.ITEMS.getKey(record.output.getItem());
-            if (id == null) continue;
-
-            if (lowerQuery.startsWith("@")) {
-                String mod = lowerQuery.substring(1);
-                if (id.getNamespace().contains(mod)) displayRecords.add(record);
-            }
-            else if (lowerQuery.startsWith("#")) {
-                String tagQuery = lowerQuery.substring(1);
-                boolean hasTag = record.output.getTags().anyMatch(tag -> tag.location().toString().contains(tagQuery));
-                if (hasTag) displayRecords.add(record);
-            }
-            else {
-                String name = record.output.getHoverName().getString().toLowerCase(Locale.ROOT);
-                String searchStr = id + " " + name + " " + PinyinUtil.getSearchData(name);
-                if (AdvancedSearchUtil.match(searchStr, lowerQuery)) {
-                    displayRecords.add(record);
-                }
+            if (isDisplayableRecord(record) && matchesSearch(record, lowerQuery)) {
+                validRecords.add(record);
             }
         }
+        for (RecipeRecord record : RecipeDatabase.invalidRecords) {
+            if (isDisplayableRecord(record) && matchesSearch(record, lowerQuery)) {
+                invalidRecords.add(record);
+            }
+        }
+
+        displayRecords.addAll(validRecords);
+        displayRecords.addAll(invalidRecords);
 
         gridScroll.update(
                 totalRows(),
                 safeVisibleRows()
         );
+    }
+
+    private boolean matchesSearch(RecipeRecord record, String lowerQuery) {
+        if (lowerQuery.isEmpty()) {
+            return true;
+        }
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(record.output.getItem());
+        if (id == null) {
+            return false;
+        }
+        if (lowerQuery.startsWith("@")) {
+            return id.getNamespace().contains(lowerQuery.substring(1));
+        }
+        if (lowerQuery.startsWith("#")) {
+            String tagQuery = lowerQuery.substring(1);
+            return record.output.getTags().anyMatch(tag -> tag.location().toString().contains(tagQuery));
+        }
+        String name = record.output.getHoverName().getString().toLowerCase(Locale.ROOT);
+        String searchStr = id + " " + name + " " + PinyinUtil.getSearchData(name);
+        return AdvancedSearchUtil.match(searchStr, lowerQuery);
     }
 
 
@@ -368,10 +387,10 @@ public class RecipePreviewScreen extends ScaledScreen {
 
         enableVirtualScissor(
                 graphics,
-                gridX,
-                gridY,
-                gridX + gridW,
-                gridY + gridH
+                gridX - SCISSOR_MARGIN,
+                gridY - SCISSOR_MARGIN,
+                gridX + gridW + SCISSOR_MARGIN,
+                gridY + gridH + SCISSOR_MARGIN
         );
 
         for (int i = startIndex;
@@ -417,7 +436,9 @@ public class RecipePreviewScreen extends ScaledScreen {
                     y,
                     SLOT_SIZE,
                     SLOT_SIZE,
-                    hovered ? HOVER_BORDER_COLOR : BORDER_COLOR
+                    record.invalidConfig
+                            ? INVALID_BORDER_COLOR
+                            : (hovered ? HOVER_BORDER_COLOR : BORDER_COLOR)
             );
 
             AdaptiveItemGridRenderer.renderItem(
@@ -527,6 +548,14 @@ public class RecipePreviewScreen extends ScaledScreen {
                 Component.empty()
         );
 
+        if (record.invalidConfig) {
+            tooltip.add(
+                    Component.translatable(
+                            "gui.kineticrecipe.recipehud.tooltip.invalid_recipe.colored"
+                    )
+            );
+        }
+
         tooltip.add(
                 Component.translatable(
                         "gui.kineticrecipe.recipehud.tooltip.left_edit.colored"
@@ -545,6 +574,16 @@ public class RecipePreviewScreen extends ScaledScreen {
                 mouseX,
                 mouseY
         );
+    }
+
+    private boolean sameRecord(RecipeRecord left, RecipeRecord right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (right.configIndex >= 0) {
+            return left.configIndex == right.configIndex;
+        }
+        return left.uuid != null && left.uuid.equals(right.uuid);
     }
 
     private void renderGreenCount(
@@ -691,7 +730,8 @@ public class RecipePreviewScreen extends ScaledScreen {
             RecipeNetwork.CHANNEL.sendToServer(
                     new RecipeNetwork.RequestEditPacket(
                             record.uuid,
-                            record.editorType
+                            record.editorType,
+                            record.configIndex
                     )
             );
 
@@ -701,6 +741,7 @@ public class RecipePreviewScreen extends ScaledScreen {
         RecipeNetwork.sendRecipeChange(
                 new RecipeNetwork.RecipeChangePacket(
                         record.uuid,
+                        record.configIndex,
                         record.editorType,
                         record.isShapeless,
                         record.inputModes,
@@ -714,10 +755,10 @@ public class RecipePreviewScreen extends ScaledScreen {
         RecipeEditSessionState.markPendingRecipeApply();
 
         RecipeDatabase.records.removeIf(
-                value ->
-                        value.uuid.equals(
-                                record.uuid
-                        )
+                value -> sameRecord(value, record)
+        );
+        RecipeDatabase.invalidRecords.removeIf(
+                value -> sameRecord(value, record)
         );
 
         displayRecords.remove(index);

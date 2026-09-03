@@ -16,12 +16,18 @@ public class RecipeRecord {
     public List<ItemStack> inputs;
     public List<Integer> inputModes;
     public String comment;
+    public boolean invalidConfig;
+    public int configIndex;
+    public String invalidReason;
 
     public RecipeRecord() {
         this.uuid = UUID.randomUUID().toString();
         this.inputs = new ArrayList<>();
         this.inputModes = new ArrayList<>();
         this.comment = "";
+        this.invalidConfig = false;
+        this.configIndex = -1;
+        this.invalidReason = "";
     }
 
     public CompoundTag saveToNBT() {
@@ -33,6 +39,9 @@ public class RecipeRecord {
         ItemStack safeOutput = output == null ? ItemStack.EMPTY : output;
         tag.put("output", safeOutput.save(new CompoundTag()));
         tag.putString("comment", comment != null ? comment : "");
+        tag.putBoolean("invalidConfig", invalidConfig);
+        tag.putInt("configIndex", configIndex);
+        tag.putString("invalidReason", invalidReason == null ? "" : invalidReason);
 
         ListTag inputsList = new ListTag();
         for (int i = 0; i < inputs.size(); i++) {
@@ -55,6 +64,9 @@ public class RecipeRecord {
         record.outputUseNbt = tag.getBoolean("outputUseNbt");
         record.output = ItemStack.of(tag.getCompound("output"));
         record.comment = tag.getString("comment");
+        record.invalidConfig = tag.getBoolean("invalidConfig");
+        record.configIndex = tag.contains("configIndex") ? tag.getInt("configIndex") : -1;
+        record.invalidReason = tag.getString("invalidReason");
 
         ListTag inputsList = tag.getList("inputs", 10);
         for (int i = 0; i < inputsList.size(); i++) {

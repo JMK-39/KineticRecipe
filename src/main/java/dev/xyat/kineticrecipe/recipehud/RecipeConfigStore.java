@@ -40,7 +40,12 @@ public final class RecipeConfigStore {
     private RecipeConfigStore() {
     }
 
-    public record Snapshot(List<RecipeRecord> recipes, List<RemovalEntry> removals, List<JsonObject> unresolvedRecipes) {
+    public record Snapshot(
+            List<RecipeRecord> recipes,
+            List<RemovalEntry> removals,
+            List<JsonObject> unresolvedRecipes,
+            List<RecipeRecord> invalidRecipes
+    ) {
     }
 
     public static synchronized Snapshot load() {
@@ -49,7 +54,7 @@ public final class RecipeConfigStore {
             return loadRequired();
         } catch (IOException e) {
             LOGGER.error("Failed to read recipe config {}", CONFIG_FILE, e);
-            return new Snapshot(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            return new Snapshot(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
     }
 
@@ -62,8 +67,9 @@ public final class RecipeConfigStore {
             }
             JsonObject root = rootElement.getAsJsonObject();
             List<JsonObject> unresolvedRecipes = new ArrayList<>();
-            List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes);
-            return new Snapshot(recipes, readRemovals(root), unresolvedRecipes);
+            List<RecipeRecord> invalidRecipes = new ArrayList<>();
+            List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes, invalidRecipes);
+            return new Snapshot(recipes, readRemovals(root), unresolvedRecipes, invalidRecipes);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -83,6 +89,32 @@ public final class RecipeConfigStore {
 
     public static synchronized void save(List<RecipeRecord> recipes, List<RemovalEntry> removals) throws IOException {
         save(recipes, removals, List.of());
+    }
+
+    public static synchronized void replaceRecipeAtConfigIndex(int configIndex, RecipeRecord record) throws IOException {
+        JsonObject root = readRootRequired();
+        JsonArray recipes = root.has("recipes") && root.get("recipes").isJsonArray()
+                ? root.getAsJsonArray("recipes")
+                : new JsonArray();
+        if (configIndex < 0 || configIndex >= recipes.size()) {
+            throw new IOException("Recipe config index is out of range: " + configIndex);
+        }
+        recipes.set(configIndex, writeRecipe(record));
+        root.add("recipes", recipes);
+        writeRootAtomic(root);
+    }
+
+    public static synchronized void deleteRecipeAtConfigIndex(int configIndex) throws IOException {
+        JsonObject root = readRootRequired();
+        JsonArray recipes = root.has("recipes") && root.get("recipes").isJsonArray()
+                ? root.getAsJsonArray("recipes")
+                : new JsonArray();
+        if (configIndex < 0 || configIndex >= recipes.size()) {
+            throw new IOException("Recipe config index is out of range: " + configIndex);
+        }
+        recipes.remove(configIndex);
+        root.add("recipes", recipes);
+        writeRootAtomic(root);
     }
 
     private static void save(
@@ -128,6 +160,29 @@ public final class RecipeConfigStore {
         }
         root.add("removals", removalsJson);
 
+        writeRootAtomic(root);
+    }
+
+    private static JsonObject readRootRequired() throws IOException {
+        ensureFile();
+        try {
+            JsonElement rootElement = GSON.fromJson(
+                    Files.readString(CONFIG_FILE, StandardCharsets.UTF_8),
+                    JsonElement.class
+            );
+            if (rootElement == null || !rootElement.isJsonObject()) {
+                throw new IOException("Recipe config root must be a JSON object");
+            }
+            return rootElement.getAsJsonObject();
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to parse recipe config", e);
+        }
+    }
+
+    private static void writeRootAtomic(JsonObject root) throws IOException {
+        Files.createDirectories(CONFIG_FILE.getParent());
         Path tempPath = CONFIG_FILE.resolveSibling(CONFIG_FILE.getFileName() + ".tmp");
         Files.writeString(tempPath, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
         try {
@@ -148,7 +203,11 @@ public final class RecipeConfigStore {
         }
     }
 
-    private static List<RecipeRecord> readRecipes(JsonObject root, List<JsonObject> unresolvedRecipes) {
+    private static List<RecipeRecord> readRecipes(
+            JsonObject root,
+            List<JsonObject> unresolvedRecipes,
+            List<RecipeRecord> invalidRecipes
+    ) {
         List<RecipeRecord> recipes = new ArrayList<>();
         JsonArray array = root.has("recipes") && root.get("recipes").isJsonArray()
                 ? root.getAsJsonArray("recipes")
@@ -166,8 +225,9 @@ public final class RecipeConfigStore {
             String label = recipeLabel(object, currentIndex);
             try {
                 RecipeRecord record = new RecipeRecord();
+                record.configIndex = currentIndex;
                 if (object.has("uuid")) {
-                    record.uuid = object.get("uuid").getAsString();
+                    record.uuid = validateRecipeUuid(object.get("uuid").getAsString());
                 }
                 record.editorType = getString(object, "editor_type", "CRAFTING");
                 RecipeRegistry.EditorType editorType = RecipeRegistry.EditorType.valueOf(record.editorType);
@@ -192,7 +252,11 @@ public final class RecipeConfigStore {
                     }
                     JsonObject inputObject = inputElement.getAsJsonObject();
                     record.inputs.add(readStack(inputObject, true, true));
-                    record.inputModes.add(inputObject.has("mode") ? inputObject.get("mode").getAsInt() : 0);
+                    int mode = inputObject.has("mode") ? inputObject.get("mode").getAsInt() : 0;
+                    if (mode < 0 || mode > 2) {
+                        throw new IllegalArgumentException("invalid input NBT mode " + mode);
+                    }
+                    record.inputModes.add(mode);
                 }
 
                 int required = switch (editorType) {
@@ -212,10 +276,175 @@ public final class RecipeConfigStore {
                 recipes.add(record);
             } catch (Exception e) {
                 unresolvedRecipes.add(object.deepCopy());
+                invalidRecipes.add(createInvalidPlaceholder(object, currentIndex, e));
                 LOGGER.warn("Skipping unusable recipe config entry {}: {}", label, safeMessage(e));
             }
         }
         return recipes;
+    }
+
+    private static RecipeRecord createInvalidPlaceholder(JsonObject object, int configIndex, Exception error) {
+        RecipeRecord record = new RecipeRecord();
+        record.invalidConfig = true;
+        record.configIndex = configIndex;
+        record.invalidReason = safeMessage(error);
+        record.uuid = readValidUuid(object);
+        record.editorType = readEditorTypeLenient(object);
+        record.isShapeless = getBooleanLenient(object, "shapeless", false);
+        record.outputUseNbt = getBooleanLenient(object, "output_use_nbt", false);
+        record.comment = getStringLenient(object, "comment", "");
+
+        JsonObject outputObject = object.has("output") && object.get("output").isJsonObject()
+                ? object.getAsJsonObject("output")
+                : null;
+        record.output = outputObject == null
+                ? invalidStack("?")
+                : readStackLenient(outputObject, false, false);
+
+        RecipeRegistry.EditorType type = RecipeRegistry.EditorType.valueOf(record.editorType);
+        int required = requiredInputCount(type);
+        JsonArray inputs = object.has("inputs") && object.get("inputs").isJsonArray()
+                ? object.getAsJsonArray("inputs")
+                : new JsonArray();
+
+        for (int i = 0; i < required; i++) {
+            if (i >= inputs.size()) {
+                record.inputs.add(requiredSlotPlaceholder(type, i));
+                record.inputModes.add(0);
+                continue;
+            }
+            JsonElement inputElement = inputs.get(i);
+            if (!inputElement.isJsonObject()) {
+                record.inputs.add(invalidStack("?"));
+                record.inputModes.add(0);
+                continue;
+            }
+            JsonObject inputObject = inputElement.getAsJsonObject();
+            record.inputs.add(readStackLenient(inputObject, true, true));
+            int mode = inputObject.has("mode") && inputObject.get("mode").isJsonPrimitive()
+                    ? getIntLenient(inputObject, "mode", 0)
+                    : 0;
+            record.inputModes.add(mode >= 0 && mode <= 2 ? mode : 0);
+        }
+
+        if (type == RecipeRegistry.EditorType.CRAFTING
+                && record.inputs.stream().noneMatch(stack -> stack != null && !stack.isEmpty())) {
+            record.inputs.set(0, invalidStack("?"));
+        }
+        if (type == RecipeRegistry.EditorType.SMITHING) {
+            for (int i = 0; i < 3; i++) {
+                if (record.inputs.get(i) == null || record.inputs.get(i).isEmpty()) {
+                    record.inputs.set(i, invalidStack("?"));
+                }
+            }
+        } else if (type != RecipeRegistry.EditorType.CRAFTING
+                && (record.inputs.isEmpty() || record.inputs.get(0) == null || record.inputs.get(0).isEmpty())) {
+            if (record.inputs.isEmpty()) {
+                record.inputs.add(invalidStack("?"));
+                record.inputModes.add(0);
+            } else {
+                record.inputs.set(0, invalidStack("?"));
+            }
+        }
+        return record;
+    }
+
+    private static int requiredInputCount(RecipeRegistry.EditorType type) {
+        return switch (type) {
+            case CRAFTING -> 9;
+            case SMITHING -> 3;
+            default -> 1;
+        };
+    }
+
+    private static ItemStack requiredSlotPlaceholder(RecipeRegistry.EditorType type, int index) {
+        if (type == RecipeRegistry.EditorType.CRAFTING) {
+            return ItemStack.EMPTY;
+        }
+        return invalidStack("?");
+    }
+
+    private static ItemStack readStackLenient(JsonObject object, boolean allowEmpty, boolean allowTag) {
+        try {
+            return readStack(object, allowEmpty, allowTag);
+        } catch (Exception ignored) {
+            return invalidStack(stackLabel(object));
+        }
+    }
+
+    private static ItemStack invalidStack(String original) {
+        ItemStack stack = new ItemStack(Items.BARRIER);
+        CompoundTag tag = stack.getOrCreateTag();
+        tag.putBoolean("kineticrecipe_invalid_placeholder", true);
+        tag.putString("kineticrecipe_invalid_original", original == null ? "?" : original);
+        stack.setHoverName(Component.translatable(
+                "gui.kineticrecipe.recipehud.invalid_item_placeholder",
+                original == null || original.isBlank() ? "?" : original
+        ));
+        return stack;
+    }
+
+    private static String stackLabel(JsonObject object) {
+        if (object == null) return "?";
+        try {
+            if (object.has("item")) return object.get("item").getAsString();
+            if (object.has("tag")) return "#" + object.get("tag").getAsString().replaceFirst("^#", "");
+        } catch (Exception ignored) {
+        }
+        return "?";
+    }
+
+    private static String validateRecipeUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("recipe uuid is blank");
+        }
+        try {
+            return java.util.UUID.fromString(raw).toString();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("invalid recipe uuid " + raw, e);
+        }
+    }
+
+    private static String readValidUuid(JsonObject object) {
+        String raw = getStringLenient(object, "uuid", "");
+        try {
+            return java.util.UUID.fromString(raw).toString();
+        } catch (Exception ignored) {
+            return java.util.UUID.randomUUID().toString();
+        }
+    }
+
+    private static String readEditorTypeLenient(JsonObject object) {
+        String raw = getStringLenient(object, "editor_type", "CRAFTING");
+        try {
+            return RecipeRegistry.EditorType.valueOf(raw).name();
+        } catch (Exception ignored) {
+            return RecipeRegistry.EditorType.CRAFTING.name();
+        }
+    }
+
+    private static String getStringLenient(JsonObject object, String key, String fallback) {
+        try {
+            return object.has(key) ? object.get(key).getAsString() : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private static boolean getBooleanLenient(JsonObject object, String key, boolean fallback) {
+        try {
+            return object.has(key) ? object.get(key).getAsBoolean() : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private static int getIntLenient(JsonObject object, String key, int fallback) {
+        try {
+            return object.has(key) ? object.get(key).getAsInt() : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private static List<RemovalEntry> readRemovals(JsonObject root) {

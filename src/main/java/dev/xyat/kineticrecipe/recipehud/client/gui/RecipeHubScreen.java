@@ -55,7 +55,7 @@ public class RecipeHubScreen extends ResponsiveContainerScreen<RecipeMenu> {
             this.addRenderableWidget(new IconButton(x, y, btnSize, btnSize, type, button -> {
                 if (Minecraft.getInstance().player != null) {
                     RecipeNetwork.CHANNEL.sendToServer(
-                            new RecipeNetwork.RequestEditPacket("", type.name())
+                            new RecipeNetwork.RequestEditPacket("", type.name(), -1)
                     );
                 }
             }));

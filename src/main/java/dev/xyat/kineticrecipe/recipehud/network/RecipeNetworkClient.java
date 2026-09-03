@@ -25,6 +25,8 @@ public final class RecipeNetworkClient {
         Screen current = Minecraft.getInstance().screen;
         if (current instanceof RecipePreviewScreen preview) {
             preview.refreshFromServer();
+        } else if (current instanceof RecipeScreen) {
+            return;
         } else {
             Minecraft.getInstance().setScreen(new RecipePreviewScreen(current));
         }
