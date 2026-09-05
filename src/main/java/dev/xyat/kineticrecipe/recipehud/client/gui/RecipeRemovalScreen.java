@@ -708,13 +708,6 @@ public class RecipeRemovalScreen extends ScaledScreen {
             );
         }
 
-        renderTooltips(
-                graphics,
-                mouseX,
-                mouseY,
-                gridScroll.offset()
-                        * safeColumns()
-        );
     }
 
     private int totalRows() {
@@ -762,7 +755,51 @@ public class RecipeRemovalScreen extends ScaledScreen {
         }
     }
 
-    private void renderTooltips(GuiGraphics g, int mx, int my, int startIdx) {
+    @Override
+    protected void renderTooltips(
+            GuiGraphics graphics,
+            int scaledMouseX,
+            int scaledMouseY,
+            int mouseX,
+            int mouseY
+    ) {
+        List<Component> tooltip = buildTooltipAt(
+                scaledMouseX,
+                scaledMouseY,
+                gridScroll.offset()
+                        * safeColumns()
+        );
+
+        if (tooltip == null || tooltip.isEmpty()) {
+            return;
+        }
+
+        graphics.pose().pushPose();
+        graphics.pose().translate(
+                mouseX,
+                mouseY,
+                500
+        );
+        graphics.pose().scale(
+                guiScale,
+                guiScale,
+                1.0F
+        );
+        graphics.pose().translate(
+                -mouseX,
+                -mouseY,
+                0
+        );
+        graphics.renderComponentTooltip(
+                font,
+                tooltip,
+                mouseX,
+                mouseY
+        );
+        graphics.pose().popPose();
+    }
+
+    private List<Component> buildTooltipAt(int mx, int my, int startIdx) {
         ItemStack hoveredStack = ItemStack.EMPTY;
 
         if (mx >= gridX && mx < gridX + gridW && my >= gridY && my < gridY + gridH) {
@@ -771,48 +808,52 @@ public class RecipeRemovalScreen extends ScaledScreen {
             int idx = startIdx + row * safeColumns() + col;
 
             if (isSearchMode) {
-                if (idx < displayItems.size()) hoveredStack = displayItems.get(idx).stack;
+                if (idx < displayItems.size()) {
+                    hoveredStack = displayItems.get(idx).stack;
+                }
             } else {
                 if (idx < displayRemovals.size()) {
                     RemovalEntry entry = displayRemovals.get(idx);
                     List<Component> tooltip = new ArrayList<>();
                     tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.entry", entry.mode().getDisplayName().copy().withStyle(ChatFormatting.AQUA), Component.literal(entry.value()).withStyle(ChatFormatting.GOLD)));
                     tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.remove"));
-                    g.renderComponentTooltip(font, tooltip, mx, my);
+                    return tooltip;
                 }
-                return;
+                return null;
             }
         } else if (minecraft != null && minecraft.player != null && mx >= invX && mx < invX + 9 * SLOT_SIZE && my >= invY && my < invY + 4 * SLOT_SIZE + 4) {
             int col = (mx - invX) / SLOT_SIZE;
             int row = (my - invY) / SLOT_SIZE;
-            if (row == 3 && my >= invY + 3 * SLOT_SIZE + 4) return;
-            if (row > 3) row = 3;
+            if (row == 3 && my >= invY + 3 * SLOT_SIZE + 4) {
+                return null;
+            }
+            if (row > 3) {
+                row = 3;
+            }
 
             int slotIndex = (row == 3) ? col : (col + (row + 1) * 9);
             hoveredStack = minecraft.player.getInventory().getItem(slotIndex);
         }
 
-        if (!hoveredStack.isEmpty()) {
-            List<Component> tooltip = null;
-            if (minecraft != null) tooltip = new ArrayList<>(Screen.getTooltipFromItem(minecraft, hoveredStack));
+        if (hoveredStack.isEmpty() || minecraft == null) {
+            return null;
+        }
 
-            List<RemovalEntry> active = activeRemovalsCache.get(hoveredStack.getItem());
-            if (active != null && !active.isEmpty()) {
-                if (tooltip != null) {
-                    tooltip.add(Component.empty());
-                    tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.active_removals.colored"));
-                    for (RemovalEntry entry : active) {
-                        tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.active_removal_item.colored", entry.mode().getDisplayName().copy().withStyle(ChatFormatting.AQUA), Component.literal(entry.value()).withStyle(ChatFormatting.GOLD)));
-                    }
-                }
-            }
-            if (tooltip != null) {
-                tooltip.add(Component.empty());
-                tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.left_add.colored"));
-                tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.right_remove.colored"));
-                g.renderComponentTooltip(font, tooltip, mx, my);
+        List<Component> tooltip = new ArrayList<>(Screen.getTooltipFromItem(minecraft, hoveredStack));
+        List<RemovalEntry> active = activeRemovalsCache.get(hoveredStack.getItem());
+
+        if (active != null && !active.isEmpty()) {
+            tooltip.add(Component.empty());
+            tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.active_removals.colored"));
+            for (RemovalEntry entry : active) {
+                tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.active_removal_item.colored", entry.mode().getDisplayName().copy().withStyle(ChatFormatting.AQUA), Component.literal(entry.value()).withStyle(ChatFormatting.GOLD)));
             }
         }
+
+        tooltip.add(Component.empty());
+        tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.left_add.colored"));
+        tooltip.add(Component.translatable("gui.kineticrecipe.recipehud.tooltip.right_remove.colored"));
+        return tooltip;
     }
 
     private void renderRemovalEntry(GuiGraphics g, RemovalEntry entry, int x, int y) {

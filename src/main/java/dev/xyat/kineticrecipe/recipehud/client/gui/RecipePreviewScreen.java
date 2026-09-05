@@ -499,22 +499,31 @@ public class RecipePreviewScreen extends ScaledScreen {
                     false
             );
         }
+    }
 
+    @Override
+    protected void renderTooltips(
+            GuiGraphics graphics,
+            int scaledMouseX,
+            int scaledMouseY,
+            int mouseX,
+            int mouseY
+    ) {
         if (gridW <= 0 || gridH <= 0) {
             return;
         }
 
-        if (mouseX < gridX
-                || mouseX >= gridX + gridW
-                || mouseY < gridY
-                || mouseY >= gridY + gridH) {
+        if (scaledMouseX < gridX
+                || scaledMouseX >= gridX + gridW
+                || scaledMouseY < gridY
+                || scaledMouseY >= gridY + gridH) {
             return;
         }
 
         int index =
                 recordIndexAt(
-                        mouseX,
-                        mouseY
+                        scaledMouseX,
+                        scaledMouseY
                 );
 
         if (index < 0
@@ -568,12 +577,29 @@ public class RecipePreviewScreen extends ScaledScreen {
                 )
         );
 
+        graphics.pose().pushPose();
+        graphics.pose().translate(
+                mouseX,
+                mouseY,
+                500
+        );
+        graphics.pose().scale(
+                guiScale,
+                guiScale,
+                1.0F
+        );
+        graphics.pose().translate(
+                -mouseX,
+                -mouseY,
+                0
+        );
         graphics.renderComponentTooltip(
                 font,
                 tooltip,
                 mouseX,
                 mouseY
         );
+        graphics.pose().popPose();
     }
 
     private boolean sameRecord(RecipeRecord left, RecipeRecord right) {
@@ -595,9 +621,17 @@ public class RecipePreviewScreen extends ScaledScreen {
         if (stack == null || stack.isEmpty() || stack.getCount() <= 1) {
             return;
         }
+
         String countText = String.valueOf(stack.getCount());
         int textX = x + SLOT_SIZE - font.width(countText) - 1;
         int textY = y + SLOT_SIZE - font.lineHeight;
+
+        graphics.pose().pushPose();
+        graphics.pose().translate(
+                0,
+                0,
+                250
+        );
         graphics.drawString(
                 font,
                 countText,
@@ -606,6 +640,7 @@ public class RecipePreviewScreen extends ScaledScreen {
                 COUNT_COLOR,
                 true
         );
+        graphics.pose().popPose();
     }
 
     private int recordIndexAt(double mouseX, double mouseY) {
