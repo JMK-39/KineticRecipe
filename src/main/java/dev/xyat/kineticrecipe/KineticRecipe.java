@@ -1,6 +1,7 @@
 package dev.xyat.kineticrecipe;
 
 import com.mojang.logging.LogUtils;
+import dev.xyat.kineticrecipe.recipehud.RecipeConfigStore;
 import dev.xyat.kineticrecipe.recipehud.RecipeRegistry;
 import dev.xyat.kineticrecipe.recipehud.config.RecipeConfigGui;
 import dev.xyat.kineticrecipe.recipehud.network.RecipeNetwork;
@@ -19,6 +20,7 @@ public final class KineticRecipe {
 
     public KineticRecipe(FMLJavaModLoadingContext context) {
         IEventBus modEventBus = context.getModEventBus();
+        RecipeConfigStore.ensureDatapackFile();
         KTServerConfigApi.registerActionPage("kineticrecipe:recipehud");
         RecipeRegistry.register(modEventBus);
         RecipeNetwork.register();

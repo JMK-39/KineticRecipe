@@ -18,6 +18,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
@@ -35,7 +37,8 @@ import java.util.Set;
 public final class RecipeConfigStore {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
-    public static final Path CONFIG_FILE = FMLPaths.CONFIGDIR.get().resolve("kineticcore/recipes.json");
+    public static final Path CONFIG_FILE = FMLPaths.CONFIGDIR.get().resolve("kineticcore/datapack/data/kineticrecipe/recipe_bundle.json");
+    public static final ResourceLocation DATAPACK_RESOURCE = new ResourceLocation("kineticrecipe", "recipe_bundle.json");
 
     private RecipeConfigStore() {
     }
@@ -53,28 +56,52 @@ public final class RecipeConfigStore {
         try {
             return loadRequired();
         } catch (IOException e) {
-            LOGGER.error("Failed to read recipe config {}", CONFIG_FILE, e);
+            LOGGER.error("Failed to read recipe datapack {}", CONFIG_FILE, e);
             return new Snapshot(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
+    }
+
+    public static synchronized Snapshot load(ResourceManager resourceManager) throws IOException {
+        if (resourceManager == null) {
+            throw new IOException("Recipe datapack resource manager is unavailable");
+        }
+        Resource resource = resourceManager.getResource(DATAPACK_RESOURCE)
+                .orElseThrow(() -> new IOException("Missing recipe datapack resource " + DATAPACK_RESOURCE));
+        try (java.io.Reader reader = resource.openAsReader()) {
+            JsonElement rootElement = GSON.fromJson(reader, JsonElement.class);
+            return parseSnapshot(rootElement);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to parse recipe datapack resource " + DATAPACK_RESOURCE, e);
+        }
+    }
+
+    public static synchronized void ensureDatapackFile() {
+        ensureFile();
     }
 
     private static Snapshot loadRequired() throws IOException {
         ensureFile();
         try {
             JsonElement rootElement = GSON.fromJson(Files.readString(CONFIG_FILE, StandardCharsets.UTF_8), JsonElement.class);
-            if (rootElement == null || !rootElement.isJsonObject()) {
-                throw new IOException("Recipe config root must be a JSON object");
-            }
-            JsonObject root = rootElement.getAsJsonObject();
-            List<JsonObject> unresolvedRecipes = new ArrayList<>();
-            List<RecipeRecord> invalidRecipes = new ArrayList<>();
-            List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes, invalidRecipes);
-            return new Snapshot(recipes, readRemovals(root), unresolvedRecipes, invalidRecipes);
+            return parseSnapshot(rootElement);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
-            throw new IOException("Failed to parse recipe config", e);
+            throw new IOException("Failed to parse recipe datapack", e);
         }
+    }
+
+    private static Snapshot parseSnapshot(JsonElement rootElement) throws IOException {
+        if (rootElement == null || !rootElement.isJsonObject()) {
+            throw new IOException("Recipe datapack root must be a JSON object");
+        }
+        JsonObject root = rootElement.getAsJsonObject();
+        List<JsonObject> unresolvedRecipes = new ArrayList<>();
+        List<RecipeRecord> invalidRecipes = new ArrayList<>();
+        List<RecipeRecord> recipes = readRecipes(root, unresolvedRecipes, invalidRecipes);
+        return new Snapshot(recipes, readRemovals(root), unresolvedRecipes, invalidRecipes);
     }
 
     public static synchronized void updateRecipes(List<RecipeRecord> recipes) throws IOException {
@@ -171,13 +198,13 @@ public final class RecipeConfigStore {
                     JsonElement.class
             );
             if (rootElement == null || !rootElement.isJsonObject()) {
-                throw new IOException("Recipe config root must be a JSON object");
+                throw new IOException("Recipe datapack root must be a JSON object");
             }
             return rootElement.getAsJsonObject();
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
-            throw new IOException("Failed to parse recipe config", e);
+            throw new IOException("Failed to parse recipe datapack", e);
         }
     }
 
@@ -199,7 +226,7 @@ public final class RecipeConfigStore {
         try {
             save(List.of(), List.of());
         } catch (IOException e) {
-            LOGGER.error("Failed to create recipe config {}", CONFIG_FILE, e);
+            LOGGER.error("Failed to create recipe datapack {}", CONFIG_FILE, e);
         }
     }
 
@@ -217,7 +244,7 @@ public final class RecipeConfigStore {
         for (JsonElement element : array) {
             int currentIndex = configIndex++;
             if (!element.isJsonObject()) {
-                LOGGER.warn("Skipping recipe config entry #{} because it is not a JSON object", currentIndex);
+                LOGGER.warn("Skipping recipe datapack entry #{} because it is not a JSON object", currentIndex);
                 continue;
             }
 
@@ -277,7 +304,7 @@ public final class RecipeConfigStore {
             } catch (Exception e) {
                 unresolvedRecipes.add(object.deepCopy());
                 invalidRecipes.add(createInvalidPlaceholder(object, currentIndex, e));
-                LOGGER.warn("Skipping unusable recipe config entry {}: {}", label, safeMessage(e));
+                LOGGER.warn("Skipping unusable recipe datapack entry {}: {}", label, safeMessage(e));
             }
         }
         return recipes;
@@ -466,7 +493,7 @@ public final class RecipeConfigStore {
                     removals.add(new RemovalEntry(mode, value, comment));
                 }
             } catch (Exception e) {
-                LOGGER.error("Skipping invalid recipe removal config entry", e);
+                LOGGER.error("Skipping invalid recipe removal datapack entry", e);
             }
         }
         return removals;

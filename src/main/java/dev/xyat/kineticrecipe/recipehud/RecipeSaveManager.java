@@ -46,7 +46,7 @@ public final class RecipeSaveManager {
             RecipeNetwork.syncRecipeRecords(player);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.saved_pending"));
         } catch (Exception e) {
-            LOGGER.error("Failed to save memory recipe", e);
+            LOGGER.error("Failed to save KineticRecipe datapack recipe", e);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));
         }
     }
@@ -67,7 +67,7 @@ public final class RecipeSaveManager {
             RecipeNetwork.syncRecipeRecords(player);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.deleted_pending"));
         } catch (Exception e) {
-            LOGGER.error("Failed to delete memory recipe {} at config index {}", uuid, configIndex, e);
+            LOGGER.error("Failed to delete KineticRecipe datapack recipe {} at bundle index {}", uuid, configIndex, e);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));
         }
     }
@@ -94,12 +94,20 @@ public final class RecipeSaveManager {
         if (player == null || player.getServer() == null || !pendingRecipeReload) {
             return;
         }
-        try {
-            RecipeMemoryManager.applyAndSync(player.getServer());
-            pendingRecipeReload = false;
-        } catch (Exception e) {
-            LOGGER.error("Failed to apply pending memory recipes", e);
-        }
+        pendingRecipeReload = false;
+        var server = player.getServer();
+        RecipeMemoryManager.reloadDatapacks(server).whenComplete((unused, error) -> {
+            if (error == null) {
+                return;
+            }
+            server.execute(() -> {
+                synchronized (RecipeSaveManager.class) {
+                    pendingRecipeReload = true;
+                }
+                LOGGER.error("Failed to reload KineticRecipe datapack", error);
+                RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));
+            });
+        });
     }
 
     public static synchronized void markApplied() {

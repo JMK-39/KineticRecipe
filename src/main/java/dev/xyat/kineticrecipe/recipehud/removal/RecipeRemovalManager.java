@@ -67,8 +67,15 @@ public final class RecipeRemovalManager {
         }
         try {
             RecipeConfigStore.updateRemovals(snapshot());
-            RecipeMemoryManager.applyAndSync(player.getServer());
-            RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.removals_saved_applied"));
+            var server = player.getServer();
+            RecipeMemoryManager.reloadDatapacks(server).whenComplete((unused, error) -> server.execute(() -> {
+                if (error == null) {
+                    RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.msg.removals_saved_applied"));
+                } else {
+                    LOGGER.error("Failed to reload KineticRecipe datapack after saving removals", error);
+                    RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));
+                }
+            }));
         } catch (Exception e) {
             LOGGER.error("Failed to save recipe removals", e);
             RecipeNetwork.sendToast(player, Component.translatable("gui.kineticrecipe.recipehud.err.save_failed_plain"));

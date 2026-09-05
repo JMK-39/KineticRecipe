@@ -30,7 +30,7 @@ public final class RecipeDatabase {
         invalidRecords.addAll(snapshot.invalidRecipes());
         loaded = true;
         LOGGER.info(
-                "Loaded {} configured memory recipes and {} invalid recipe entries",
+                "Loaded {} configured datapack recipes and {} invalid recipe entries",
                 records.size(),
                 invalidRecords.size()
         );

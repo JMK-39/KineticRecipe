@@ -7,9 +7,10 @@ import dev.xyat.kineticrecipe.recipehud.removal.RemovalEntry;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.network.protocol.game.ClientboundUpdateRecipesPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -18,6 +19,7 @@ import net.minecraft.world.item.crafting.CookingBookCategory;
 import net.minecraft.world.item.crafting.CraftingBookCategory;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.ShapelessRecipe;
 import net.minecraft.world.item.crafting.SmeltingRecipe;
@@ -26,9 +28,8 @@ import net.minecraft.world.item.crafting.SmokingRecipe;
 import net.minecraft.world.item.crafting.StonecutterRecipe;
 import net.minecraftforge.common.crafting.PartialNBTIngredient;
 import net.minecraftforge.common.crafting.StrictNBTIngredient;
-import net.minecraftforge.event.OnDatapackSyncEvent;
-import net.minecraftforge.event.server.ServerStartedEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.event.AddReloadListenerEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -38,64 +39,41 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Mod.EventBusSubscriber(modid = KineticRecipe.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class RecipeMemoryManager {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final List<Recipe<?>> BASELINE = new ArrayList<>();
-    private static boolean baselineReady;
 
     private RecipeMemoryManager() {
     }
 
-    @SubscribeEvent
-    public static void onServerStarted(ServerStartedEvent event) {
-        captureBaseline(event.getServer());
-        RecipeDatabase.reloadDatabase();
-        RecipeRemovalManager.reloadData();
-        apply(event.getServer(), false);
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onAddReloadListener(AddReloadListenerEvent event) {
+        event.addListener(new DatapackRecipeReloadListener(
+                event.getServerResources().getRecipeManager(),
+                event.getRegistryAccess()
+        ));
     }
 
-    @SubscribeEvent
-    public static void onServerStopping(ServerStoppingEvent event) {
-        BASELINE.clear();
-        baselineReady = false;
-    }
-
-    @SubscribeEvent
-    public static void onDatapackSync(OnDatapackSyncEvent event) {
-        if (event.getPlayer() != null) {
-            return;
+    public static CompletableFuture<Void> reloadDatapacks(MinecraftServer server) {
+        if (server == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("server is null"));
         }
-        MinecraftServer server = event.getPlayerList().getServer();
-        captureBaseline(server);
-        RecipeDatabase.reloadDatabase();
-        RecipeRemovalManager.reloadData();
-        apply(server, false);
-        RecipeSaveManager.markApplied();
+        server.getPackRepository().reload();
+        return server.reloadResources(List.copyOf(server.getPackRepository().getSelectedIds()));
     }
 
-    public static synchronized void applyAndSync(MinecraftServer server) {
-        if (!baselineReady) {
-            captureBaseline(server);
-        }
-        RecipeDatabase.reloadDatabase();
-        apply(server, true);
-        RecipeSaveManager.markApplied();
-    }
-
-    private static synchronized void captureBaseline(MinecraftServer server) {
-        BASELINE.clear();
-        BASELINE.addAll(server.getRecipeManager().getRecipes());
-        baselineReady = true;
-        LOGGER.info("Captured {} baseline recipes", BASELINE.size());
-    }
-
-    private static void apply(MinecraftServer server, boolean syncPlayers) {
-        RecipeConfigStore.Snapshot snapshot = RecipeConfigStore.load();
+    private static void applySnapshot(
+            RecipeManager recipeManager,
+            RegistryAccess registryAccess,
+            RecipeConfigStore.Snapshot snapshot
+    ) {
         Map<ResourceLocation, Recipe<?>> recipes = new LinkedHashMap<>();
         int skippedBaseline = 0;
-        for (Recipe<?> recipe : BASELINE) {
+
+        List<Recipe<?>> baseline = new ArrayList<>(recipeManager.getRecipes());
+        for (Recipe<?> recipe : baseline) {
             try {
                 if (recipe == null || recipe.getId() == null) {
                     skippedBaseline++;
@@ -104,11 +82,10 @@ public final class RecipeMemoryManager {
                 recipes.put(recipe.getId(), recipe);
             } catch (Exception e) {
                 skippedBaseline++;
-                LOGGER.warn("Skipping unreadable baseline recipe: {}", safeMessage(e));
+                LOGGER.warn("Skipping unreadable datapack recipe: {}", safeMessage(e));
             }
         }
 
-        RegistryAccess registryAccess = server.registryAccess();
         recipes.values().removeIf(recipe -> matchesRemoval(recipe, snapshot.removals(), registryAccess));
 
         int added = 0;
@@ -124,25 +101,48 @@ public final class RecipeMemoryManager {
                 }
             } catch (Exception e) {
                 skippedConfigured++;
-                LOGGER.warn("Skipping unusable memory recipe {}: {}", recipeLabel(record), safeMessage(e));
+                LOGGER.warn("Skipping unusable KineticRecipe datapack recipe {}: {}", recipeLabel(record), safeMessage(e));
             }
         }
 
         List<Recipe<?>> finalRecipes = new ArrayList<>(recipes.values());
-        server.getRecipeManager().replaceRecipes(finalRecipes);
+        recipeManager.replaceRecipes(finalRecipes);
+        RecipeDatabase.reloadDatabase();
+        RecipeRemovalManager.reloadData();
+        RecipeSaveManager.markApplied();
 
-        if (syncPlayers) {
-            ClientboundUpdateRecipesPacket packet = new ClientboundUpdateRecipesPacket(finalRecipes);
-            server.getPlayerList().getPlayers().forEach(player -> player.connection.send(packet));
-        }
         LOGGER.info(
-                "Applied memory recipes: baseline={}, configured={}, active={}, skippedBaseline={}, skippedConfigured={}",
-                BASELINE.size(),
+                "Applied KineticRecipe datapack: baseline={}, configured={}, active={}, skippedBaseline={}, skippedConfigured={}",
+                baseline.size(),
                 added,
                 finalRecipes.size(),
                 skippedBaseline,
                 skippedConfigured
         );
+    }
+
+    private static final class DatapackRecipeReloadListener implements ResourceManagerReloadListener {
+        private final RecipeManager recipeManager;
+        private final RegistryAccess registryAccess;
+
+        private DatapackRecipeReloadListener(RecipeManager recipeManager, RegistryAccess registryAccess) {
+            this.recipeManager = recipeManager;
+            this.registryAccess = registryAccess;
+        }
+
+        @Override
+        public void onResourceManagerReload(ResourceManager resourceManager) {
+            try {
+                RecipeConfigStore.Snapshot snapshot = RecipeConfigStore.load(resourceManager);
+                applySnapshot(recipeManager, registryAccess, snapshot);
+            } catch (Exception e) {
+                LOGGER.error(
+                        "Failed to load KineticRecipe datapack resource {}; keeping recipes loaded by Minecraft unchanged",
+                        RecipeConfigStore.DATAPACK_RESOURCE,
+                        e
+                );
+            }
+        }
     }
 
     private static Recipe<?> buildRecipe(RecipeRecord record) {
